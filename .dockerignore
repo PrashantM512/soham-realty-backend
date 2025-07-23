@@ -13,20 +13,15 @@ logs/
 .project
 .settings/
 
-# Sensitive or environment‑specific configs
-src/main/resources/application.properties
-src/main/resources/application-*.properties
-
 # Local upload folder
 Uploads/
 uploads/
 
-# Dockerfile, docker-compose, and scripts (optional if you don’t want these in the build context)
-Dockerfile
+# Docker files (optional)
 docker-compose.yml
 *.sh
 
-# Node / frontend build artifacts (if you ever build Angular in the same repo)
+# Node / frontend build artifacts
 node_modules/
 dist/
 npm-debug.log
@@ -34,3 +29,9 @@ npm-debug.log
 # OS files
 .DS_Store
 Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Don't exclude properties files anymore - we need them!

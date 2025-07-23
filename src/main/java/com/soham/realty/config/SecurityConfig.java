@@ -18,7 +18,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import com.soham.realty.security.JwtAuthenticationFilte;
+import com.soham.realty.security.JwtAuthenticationFilter;
 import com.soham.realty.service.CustomUserDetailsService;
 
 import java.util.Arrays;
@@ -28,7 +28,7 @@ import java.util.Arrays;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilte jwtAuthFilter;
+    private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService customUserDetailsService;
 
     @Bean
