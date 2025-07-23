@@ -8,7 +8,6 @@ logs/
 .project
 .settings/
 application.properties
-application-prod.properties
 application-dev.properties
 
 # Sensitive directories
