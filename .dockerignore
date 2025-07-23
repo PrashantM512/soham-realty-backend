@@ -1,19 +1,36 @@
-# Build artifacts
+# Maven build artifacts
 target/
+**/target/
+
+# Logs
 *.log
 logs/
 
-# IDE files
+# IDE config files
 .idea/
 *.iml
 .classpath
 .project
 .settings/
 
-# Sensitive files
-application.properties
-application-dev.properties
-application-prod.properties
+# Sensitive or environment‑specific configs
+src/main/resources/application.properties
+src/main/resources/application-*.properties
 
-# Local storage
+# Local upload folder
 Uploads/
+uploads/
+
+# Dockerfile, docker-compose, and scripts (optional if you don’t want these in the build context)
+Dockerfile
+docker-compose.yml
+*.sh
+
+# Node / frontend build artifacts (if you ever build Angular in the same repo)
+node_modules/
+dist/
+npm-debug.log
+
+# OS files
+.DS_Store
+Thumbs.db
