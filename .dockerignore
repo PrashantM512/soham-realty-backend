@@ -1,0 +1,19 @@
+# Build artifacts
+target/
+*.log
+logs/
+
+# IDE files
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# Sensitive files
+application.properties
+application-dev.properties
+application-prod.properties
+
+# Local storage
+Uploads/
