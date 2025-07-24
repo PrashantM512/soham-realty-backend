@@ -20,8 +20,8 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString(exclude = "property") // Prevent circular reference
-@EqualsAndHashCode(exclude = "property") // Prevent circular reference
+@ToString(exclude = "property")
+@EqualsAndHashCode(exclude = "property")
 public class PropertyImage {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -35,18 +35,27 @@ public class PropertyImage {
     @Column(name = "image_url", nullable = false, length = 500)
     private String imageUrl;
     
-    @Column(name = "image_order")
+    @Column(name = "image_order", nullable = false)
     private Integer imageOrder = 0;
     
-    @Column(name = "created_at")
+    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
     
+    // IMPORTANT: Set default value and columnDefinition
     @Version
-    @Column(name = "version")
+    @Column(name = "version", nullable = false, columnDefinition = "BIGINT DEFAULT 0")
     private Long version = 0L;
     
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (version == null) {
+            version = 0L;
+        }
+        if (imageOrder == null) {
+            imageOrder = 0;
+        }
     }
 }

@@ -25,8 +25,8 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString(exclude = "images") // Prevent circular reference in toString
-@EqualsAndHashCode(exclude = "images") // Prevent circular reference in equals/hashCode
+@ToString(exclude = "images")
+@EqualsAndHashCode(exclude = "images")
 public class Property {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -53,55 +53,85 @@ public class Property {
     @Column(nullable = false, length = 10)
     private String zip;
     
+    @Column(nullable = false)
     private Integer bedrooms = 0;
     
-    @Column(precision = 3, scale = 1)
+    @Column(precision = 3, scale = 1, nullable = false)
     private BigDecimal bathrooms = BigDecimal.ZERO;
     
-    @Column(name = "square_footage")
+    @Column(name = "square_footage", nullable = false)
     private Integer squareFootage = 0;
     
     @Column(name = "property_type", nullable = false, length = 50)
     private String propertyType;
     
-    @Column(length = 20)
+    @Column(length = 20, nullable = false)
     private String status = "Available";
     
     @Column(name = "video_link", length = 500)
     private String videoLink;
     
+    @Column(nullable = false)
     private Boolean featured = false;
     
-    // Cascade ALL will handle deletion of images when property is deleted
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("imageOrder ASC")
     private List<PropertyImage> images = new ArrayList<>();
     
     @Column(name = "image_url", length = 500)
-    private String imageUrl;
+    private String imageUrl = "";
     
-    @Column(name = "created_at")
+    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
     
-    @Column(name = "updated_at")
+    @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
     
+    // IMPORTANT: Set default value and columnDefinition
     @Version
-    @Column(name = "version")
+    @Column(name = "version", nullable = false, columnDefinition = "BIGINT DEFAULT 0")
     private Long version = 0L;
     
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
+        }
+        if (version == null) {
+            version = 0L;
+        }
+        if (featured == null) {
+            featured = false;
+        }
+        if (imageUrl == null) {
+            imageUrl = "";
+        }
+        if (bedrooms == null) {
+            bedrooms = 0;
+        }
+        if (bathrooms == null) {
+            bathrooms = BigDecimal.ZERO;
+        }
+        if (squareFootage == null) {
+            squareFootage = 0;
+        }
+        if (status == null) {
+            status = "Available";
+        }
     }
     
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        if (version == null) {
+            version = 0L;
+        }
     }
     
-    // Helper method to safely add images
+    // Helper methods remain the same
     public void addImage(PropertyImage image) {
         if (images == null) {
             images = new ArrayList<>();
@@ -110,7 +140,6 @@ public class Property {
         image.setProperty(this);
     }
     
-    // Helper method to safely remove images
     public void removeImage(PropertyImage image) {
         if (images != null) {
             images.remove(image);
@@ -118,7 +147,6 @@ public class Property {
         }
     }
     
-    // Helper method to clear all images
     public void clearImages() {
         if (images != null) {
             for (PropertyImage image : new ArrayList<>(images)) {
