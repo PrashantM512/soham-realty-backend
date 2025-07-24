@@ -80,8 +80,8 @@ public class PropertyServiceImpl implements PropertyService {
     @Cacheable(value = "featuredProperties", unless = "#result.isEmpty()")
     public List<PropertyResponse> getFeaturedProperties() {
         log.debug("Fetching featured properties from database");
-        List<Property> featuredProperties = propertyRepository.findFeaturedPropertiesByStatus("Available");
-        List<PropertyResponse> result = featuredProperties.stream()
+        List<Property> featured = propertyRepository.findFeaturedPropertiesByStatus("Available");
+        List<PropertyResponse> result = featured.stream()
             .map(this::mapToPropertyResponse)
             .collect(Collectors.toList());
 
@@ -105,10 +105,9 @@ public class PropertyServiceImpl implements PropertyService {
         Property property = new Property();
         mapRequestToProperty(request, property);
 
-        Property savedProperty = propertyRepository.save(property);
-
-        log.info("Created property with ID: {}, Featured: {}", savedProperty.getId(), savedProperty.getFeatured());
-        return mapToPropertyResponse(savedProperty);
+        Property saved = propertyRepository.save(property);
+        log.info("Created property with ID: {}, Featured: {}", saved.getId(), saved.getFeatured());
+        return mapToPropertyResponse(saved);
     }
 
     @Override
@@ -119,23 +118,23 @@ public class PropertyServiceImpl implements PropertyService {
         Property property = propertyRepository.findByIdWithImages(id)
             .orElseThrow(() -> new ResourceNotFoundException("Property not found with id: " + id));
 
-        boolean featuredStatusChanging = !property.getFeatured().equals(request.getFeatured());
-
+        boolean featuredChanging = !property.getFeatured().equals(request.getFeatured());
         mapRequestToProperty(request, property);
+        Property updated = propertyRepository.save(property);
 
-        Property updatedProperty = propertyRepository.save(property);
-
-        if (featuredStatusChanging) {
+        if (featuredChanging) {
             log.info("Featured status changed for property {}: {} -> {}",
                 id, !request.getFeatured(), request.getFeatured());
         }
 
-        return mapToPropertyResponse(updatedProperty);
+        return mapToPropertyResponse(updated);
     }
 
     @Override
     @CacheEvict(value = {"featuredProperties", "propertyDetails"}, allEntries = true)
     public void deleteProperty(Long id) {
+        log.info("Attempting to delete property with id: {}", id);
+
         Property property = propertyRepository.findByIdWithImages(id)
             .orElseThrow(() -> new ResourceNotFoundException("Property not found with id: " + id));
 
@@ -143,15 +142,31 @@ public class PropertyServiceImpl implements PropertyService {
         for (PropertyImage image : images) {
             try {
                 String fileName = extractFileNameFromUrl(image.getImageUrl());
-                fileStorageService.deleteFile(fileName);
+                if (fileName != null) {
+                    fileStorageService.deleteFile(fileName);
+                    log.debug("Deleted image file: {}", fileName);
+                }
             } catch (Exception e) {
                 log.error("Failed to delete image file: {}", image.getImageUrl(), e);
+                // Continue even if file deletion fails
             }
         }
 
-        propertyImageRepository.deleteByPropertyId(id);
-        propertyRepository.deleteById(id);
-        log.info("Deleted property with id: {} and {} associated images", id, images.size());
+        try {
+            propertyImageRepository.deleteByPropertyId(id);
+            log.debug("Deleted PropertyImage records for property id: {}", id);
+        } catch (Exception e) {
+            log.error("Failed to delete PropertyImage records for property id: {}", id, e);
+            throw new RuntimeException("Failed to delete property images", e);
+        }
+
+        try {
+            propertyRepository.deleteById(id);
+            log.info("Successfully deleted property with id: {} and {} associated images", id, images.size());
+        } catch (Exception e) {
+            log.error("Failed to delete property with id: {}", id, e);
+            throw new RuntimeException("Failed to delete property", e);
+        }
     }
 
     @Override
@@ -164,17 +179,19 @@ public class PropertyServiceImpl implements PropertyService {
             throw new BadRequestException("No files provided");
         }
 
-        List<PropertyImage> existingImages = property.getImages();
-        for (PropertyImage existingImage : existingImages) {
+        // Delete existing images
+        List<PropertyImage> existing = property.getImages();
+        for (PropertyImage img : existing) {
             try {
-                String fileName = extractFileNameFromUrl(existingImage.getImageUrl());
-                fileStorageService.deleteFile(fileName);
-                log.debug("Deleted existing image file: {}", fileName);
+                String fileName = extractFileNameFromUrl(img.getImageUrl());
+                if (fileName != null) {
+                    fileStorageService.deleteFile(fileName);
+                    log.debug("Deleted existing image file: {}", fileName);
+                }
             } catch (Exception e) {
-                log.error("Failed to delete existing image: {}", existingImage.getImageUrl(), e);
+                log.error("Failed to delete existing image: {}", img.getImageUrl(), e);
             }
         }
-
         propertyImageRepository.deleteByPropertyId(propertyId);
 
         List<String> uploadedUrls = new ArrayList<>();
@@ -194,7 +211,6 @@ public class PropertyServiceImpl implements PropertyService {
                 image.setImageOrder(i);
                 propertyImageRepository.save(image);
 
-                // Set the first image as the primary imageUrl in Property
                 if (i == 0) {
                     property.setImageUrl(fileUrl);
                 }
@@ -218,59 +234,46 @@ public class PropertyServiceImpl implements PropertyService {
         Specification<Property> spec = Specification.where(null);
 
         if (searchRequest.getSearch() != null && !searchRequest.getSearch().trim().isEmpty()) {
-            String search = searchRequest.getSearch().trim().toLowerCase();
+            String term = searchRequest.getSearch().trim().toLowerCase();
             spec = spec.and((root, query, cb) ->
                 cb.or(
-                    cb.like(cb.lower(root.get("title")), "%" + search + "%"),
-                    cb.like(cb.lower(root.get("description")), "%" + search + "%"),
-                    cb.like(cb.lower(root.get("address")), "%" + search + "%"),
-                    cb.like(cb.lower(root.get("city")), "%" + search + "%"),
-                    cb.like(root.get("zip"), "%" + search + "%")
+                    cb.like(cb.lower(root.get("title")), "%" + term + "%"),
+                    cb.like(cb.lower(root.get("description")), "%" + term + "%"),
+                    cb.like(cb.lower(root.get("address")), "%" + term + "%"),
+                    cb.like(cb.lower(root.get("city")), "%" + term + "%"),
+                    cb.like(root.get("zip"), "%" + term + "%")
                 )
             );
         }
 
         if (searchRequest.getLocation() != null && !searchRequest.getLocation().trim().isEmpty()) {
-            String location = searchRequest.getLocation().trim();
+            String loc = searchRequest.getLocation().trim().toLowerCase();
             spec = spec.and((root, query, cb) ->
                 cb.or(
-                    cb.like(cb.lower(root.get("city")), "%" + location.toLowerCase() + "%"),
-                    cb.like(cb.lower(root.get("address")), "%" + location.toLowerCase() + "%"),
-                    cb.like(root.get("zip"), "%" + location + "%")
+                    cb.like(cb.lower(root.get("city")), "%" + loc + "%"),
+                    cb.like(cb.lower(root.get("address")), "%" + loc + "%"),
+                    cb.like(root.get("zip"), "%" + loc + "%")
                 )
             );
         }
 
         if (searchRequest.getPriceRange() != null && !searchRequest.getPriceRange().isEmpty()) {
             String[] range = searchRequest.getPriceRange().split("-");
-            if (range.length > 0) {
-                BigDecimal minPrice = new BigDecimal(range[0]);
-                spec = spec.and((root, query, cb) ->
-                    cb.greaterThanOrEqualTo(root.get("price"), minPrice)
-                );
-
-                if (range.length > 1) {
-                    BigDecimal maxPrice = new BigDecimal(range[1]);
-                    spec = spec.and((root, query, cb) ->
-                        cb.lessThanOrEqualTo(root.get("price"), maxPrice)
-                    );
-                }
+            BigDecimal min = new BigDecimal(range[0]);
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("price"), min));
+            if (range.length > 1) {
+                BigDecimal max = new BigDecimal(range[1]);
+                spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("price"), max));
             }
         }
 
-        if (searchRequest.getPropertyType() != null && !searchRequest.getPropertyType().isEmpty()
-            && !"All Types".equals(searchRequest.getPropertyType())) {
-            spec = spec.and((root, query, cb) ->
-                cb.equal(root.get("propertyType"), searchRequest.getPropertyType())
-            );
+        if (searchRequest.getPropertyType() != null && !searchRequest.getPropertyType().isEmpty() && !"All Types".equals(searchRequest.getPropertyType())) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("propertyType"), searchRequest.getPropertyType()));
         }
 
-        if (searchRequest.getBedrooms() != null && !searchRequest.getBedrooms().isEmpty()
-            && !"Any".equals(searchRequest.getBedrooms())) {
-            int minBeds = Integer.parseInt(searchRequest.getBedrooms().replace("+", ""));
-            spec = spec.and((root, query, cb) ->
-                cb.greaterThanOrEqualTo(root.get("bedrooms"), minBeds)
-            );
+        if (searchRequest.getBedrooms() != null && !searchRequest.getBedrooms().isEmpty() && !"Any".equals(searchRequest.getBedrooms())) {
+            int beds = Integer.parseInt(searchRequest.getBedrooms().replace("+", ""));
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("bedrooms"), beds));
         }
 
         return spec;
@@ -289,16 +292,13 @@ public class PropertyServiceImpl implements PropertyService {
             return null;
         }
         if ("prod".equals(activeProfile) && url.startsWith("http")) {
-            // For Cloudinary URLs in prod, return the public_id
-            // Example: http://res.cloudinary.com/daz7kufro/image/upload/v1753345678/bh6dsypl2yjqe2ytyhav.png
-            int lastSlashIndex = url.lastIndexOf("/");
-            int extensionIndex = url.lastIndexOf(".");
-            if (lastSlashIndex != -1 && extensionIndex != -1 && extensionIndex > lastSlashIndex) {
-                return url.substring(lastSlashIndex + 1, extensionIndex);
+            int slash = url.lastIndexOf("/");
+            int dot = url.lastIndexOf(".");
+            if (slash != -1 && dot > slash) {
+                return url.substring(slash + 1, dot);
             }
             return url;
         }
-        // For dev, extract filename from /api/files/
         if (url.contains("/api/files/")) {
             return url.substring(url.lastIndexOf("/") + 1);
         }
@@ -323,31 +323,31 @@ public class PropertyServiceImpl implements PropertyService {
     }
 
     private PropertyResponse mapToPropertyResponseLight(Property property) {
-        PropertyResponse response = new PropertyResponse();
-        response.setId(property.getId());
-        response.setTitle(property.getTitle());
-        response.setPrice(property.getPrice());
-        response.setDescription(property.getDescription());
-        response.setAddress(property.getAddress());
-        response.setCity(property.getCity());
-        response.setState(property.getState());
-        response.setZip(property.getZip());
-        response.setBedrooms(property.getBedrooms());
-        response.setBathrooms(property.getBathrooms());
-        response.setSquareFootage(property.getSquareFootage());
-        response.setPropertyType(property.getPropertyType());
-        response.setStatus(property.getStatus());
-        response.setVideoLink(property.getVideoLink());
-        response.setFeatured(property.getFeatured());
-        response.setCreatedAt(property.getCreatedAt());
-        response.setUpdatedAt(property.getUpdatedAt());
+        PropertyResponse resp = new PropertyResponse();
+        resp.setId(property.getId());
+        resp.setTitle(property.getTitle());
+        resp.setPrice(property.getPrice());
+        resp.setDescription(property.getDescription());
+        resp.setAddress(property.getAddress());
+        resp.setCity(property.getCity());
+        resp.setState(property.getState());
+        resp.setZip(property.getZip());
+        resp.setBedrooms(property.getBedrooms());
+        resp.setBathrooms(property.getBathrooms());
+        resp.setSquareFootage(property.getSquareFootage());
+        resp.setPropertyType(property.getPropertyType());
+        resp.setStatus(property.getStatus());
+        resp.setVideoLink(property.getVideoLink());
+        resp.setFeatured(property.getFeatured());
+        resp.setCreatedAt(property.getCreatedAt());
+        resp.setUpdatedAt(property.getUpdatedAt());
 
-        List<String> imageUrls = property.getImages().stream()
+        List<String> urls = property.getImages().stream()
             .map(PropertyImage::getImageUrl)
             .collect(Collectors.toList());
-        response.setImages(imageUrls);
+        resp.setImages(urls);
 
-        return response;
+        return resp;
     }
 
     private PropertyResponse mapToPropertyResponse(Property property) {

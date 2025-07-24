@@ -1,10 +1,14 @@
 package com.soham.realty.repository;
 
 import com.soham.realty.entity.Property;
+
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -20,7 +24,8 @@ public interface PropertyRepository extends JpaRepository<Property, Long>, JpaSp
     List<Property> findFeaturedPropertiesByStatus(@Param("status") String status);
     
     // OPTIMIZED: Single query with JOIN FETCH to avoid N+1 problem
-    @Query("SELECT DISTINCT p FROM Property p LEFT JOIN FETCH p.images WHERE p.id = :id")
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.images WHERE p.id = :id")
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Property> findByIdWithImages(@Param("id") Long id);
     
     // OPTIMIZED: Efficient search queries
