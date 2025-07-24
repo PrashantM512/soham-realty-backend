@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,6 +25,8 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString(exclude = "images") // Prevent circular reference in toString
+@EqualsAndHashCode(exclude = "images") // Prevent circular reference in equals/hashCode
 public class Property {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -67,28 +72,23 @@ public class Property {
     
     private Boolean featured = false;
     
-    // OPTIMIZED: Use FetchType.LAZY and proper cascade
+    // Cascade ALL will handle deletion of images when property is deleted
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("imageOrder ASC")
     private List<PropertyImage> images = new ArrayList<>();
     
-    @Column(name = "image_url")
+    @Column(name = "image_url", length = 500)
     private String imageUrl;
-
-    // Other fields, getters, setters
-    public String getImageUrl() {
-        return imageUrl;
-    }
-
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
-    }
     
     @Column(name = "created_at")
     private LocalDateTime createdAt;
     
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+    
+    @Version
+    @Column(name = "version")
+    private Long version = 0L;
     
     @PrePersist
     protected void onCreate() {
@@ -99,5 +99,32 @@ public class Property {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+    
+    // Helper method to safely add images
+    public void addImage(PropertyImage image) {
+        if (images == null) {
+            images = new ArrayList<>();
+        }
+        images.add(image);
+        image.setProperty(this);
+    }
+    
+    // Helper method to safely remove images
+    public void removeImage(PropertyImage image) {
+        if (images != null) {
+            images.remove(image);
+            image.setProperty(null);
+        }
+    }
+    
+    // Helper method to clear all images
+    public void clearImages() {
+        if (images != null) {
+            for (PropertyImage image : new ArrayList<>(images)) {
+                removeImage(image);
+            }
+            images.clear();
+        }
     }
 }

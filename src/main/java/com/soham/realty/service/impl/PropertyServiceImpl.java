@@ -131,45 +131,50 @@ public class PropertyServiceImpl implements PropertyService {
     }
 
     @Override
+    @Transactional
     @CacheEvict(value = {"featuredProperties", "propertyDetails"}, allEntries = true)
     public void deleteProperty(Long id) {
         log.info("Attempting to delete property with id: {}", id);
 
-        Property property = propertyRepository.findByIdWithImages(id)
+        // Use regular find instead of the one with pessimistic lock
+        Property property = propertyRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Property not found with id: " + id));
 
-        List<PropertyImage> images = property.getImages();
-        for (PropertyImage image : images) {
+        // Get image URLs before deletion for cleanup
+        List<String> imageUrls = new ArrayList<>();
+        if (property.getImages() != null) {
+            imageUrls = property.getImages().stream()
+                .map(PropertyImage::getImageUrl)
+                .collect(Collectors.toList());
+        }
+
+        // Delete the property (cascade will handle PropertyImage deletion)
+        try {
+            propertyRepository.delete(property);
+            propertyRepository.flush(); // Force the deletion to complete
+            log.info("Successfully deleted property with id: {}", id);
+        } catch (Exception e) {
+            log.error("Failed to delete property with id: {}", id, e);
+            throw new RuntimeException("Failed to delete property", e);
+        }
+
+        // Clean up image files after successful database deletion
+        for (String imageUrl : imageUrls) {
             try {
-                String fileName = extractFileNameFromUrl(image.getImageUrl());
+                String fileName = extractFileNameFromUrl(imageUrl);
                 if (fileName != null) {
                     fileStorageService.deleteFile(fileName);
                     log.debug("Deleted image file: {}", fileName);
                 }
             } catch (Exception e) {
-                log.error("Failed to delete image file: {}", image.getImageUrl(), e);
+                log.error("Failed to delete image file: {}", imageUrl, e);
                 // Continue even if file deletion fails
             }
-        }
-
-        try {
-            propertyImageRepository.deleteByPropertyId(id);
-            log.debug("Deleted PropertyImage records for property id: {}", id);
-        } catch (Exception e) {
-            log.error("Failed to delete PropertyImage records for property id: {}", id, e);
-            throw new RuntimeException("Failed to delete property images", e);
-        }
-
-        try {
-            propertyRepository.deleteById(id);
-            log.info("Successfully deleted property with id: {} and {} associated images", id, images.size());
-        } catch (Exception e) {
-            log.error("Failed to delete property with id: {}", id, e);
-            throw new RuntimeException("Failed to delete property", e);
         }
     }
 
     @Override
+    @Transactional
     @CacheEvict(value = "propertyDetails", key = "#propertyId")
     public List<String> uploadPropertyImages(Long propertyId, MultipartFile[] files) {
         Property property = propertyRepository.findByIdWithImages(propertyId)
@@ -179,9 +184,13 @@ public class PropertyServiceImpl implements PropertyService {
             throw new BadRequestException("No files provided");
         }
 
-        // Delete existing images
-        List<PropertyImage> existing = property.getImages();
-        for (PropertyImage img : existing) {
+        // Clear existing images
+        List<PropertyImage> existingImages = new ArrayList<>(property.getImages());
+        property.getImages().clear(); // Clear the collection
+        propertyRepository.saveAndFlush(property); // Save to trigger orphan removal
+
+        // Delete existing image files
+        for (PropertyImage img : existingImages) {
             try {
                 String fileName = extractFileNameFromUrl(img.getImageUrl());
                 if (fileName != null) {
@@ -192,7 +201,6 @@ public class PropertyServiceImpl implements PropertyService {
                 log.error("Failed to delete existing image: {}", img.getImageUrl(), e);
             }
         }
-        propertyImageRepository.deleteByPropertyId(propertyId);
 
         List<String> uploadedUrls = new ArrayList<>();
         int maxImages = Math.min(files.length, MAX_IMAGES_PER_PROPERTY);
@@ -200,16 +208,20 @@ public class PropertyServiceImpl implements PropertyService {
         for (int i = 0; i < maxImages; i++) {
             try {
                 String fileUrl = fileStorageService.storeFile(files[i]);
-                if (!"prod".equals(activeProfile)) {
+                
+                // For Cloudinary, the URL is already complete
+                if (!fileUrl.startsWith("http://") && !fileUrl.startsWith("https://")) {
+                    // Only add prefix for local files
                     fileUrl = "/api/files/" + fileUrl;
                 }
+                
                 uploadedUrls.add(fileUrl);
 
                 PropertyImage image = new PropertyImage();
                 image.setProperty(property);
                 image.setImageUrl(fileUrl);
                 image.setImageOrder(i);
-                propertyImageRepository.save(image);
+                property.getImages().add(image);
 
                 if (i == 0) {
                     property.setImageUrl(fileUrl);
@@ -291,17 +303,28 @@ public class PropertyServiceImpl implements PropertyService {
         if (url == null) {
             return null;
         }
-        if ("prod".equals(activeProfile) && url.startsWith("http")) {
-            int slash = url.lastIndexOf("/");
-            int dot = url.lastIndexOf(".");
-            if (slash != -1 && dot > slash) {
-                return url.substring(slash + 1, dot);
+        
+        // Handle Cloudinary URLs
+        if (url.contains("cloudinary.com")) {
+            // For Cloudinary, we need to extract the public_id
+            // Example: https://res.cloudinary.com/daz7kufro/image/upload/v1234567890/soham-realty/properties/image.jpg
+            if (url.contains("/upload/")) {
+                String[] parts = url.split("/upload/v\\d+/");
+                if (parts.length > 1) {
+                    String publicIdWithExt = parts[1];
+                    // Remove file extension
+                    int lastDotIndex = publicIdWithExt.lastIndexOf('.');
+                    return lastDotIndex > 0 ? publicIdWithExt.substring(0, lastDotIndex) : publicIdWithExt;
+                }
             }
-            return url;
+            return url; // Return full URL if we can't extract public_id
         }
+        
+        // Handle local file URLs
         if (url.contains("/api/files/")) {
             return url.substring(url.lastIndexOf("/") + 1);
         }
+        
         return url;
     }
 
