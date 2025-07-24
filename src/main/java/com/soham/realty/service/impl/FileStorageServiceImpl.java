@@ -33,7 +33,7 @@ public class FileStorageServiceImpl implements FileStorageService {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
-    @Value("${file.max-size:10485760}") // 10MB default
+    @Value("${file.max-size:10485760}")
     private long maxFileSize;
 
     private Path fileStorageLocation;
@@ -56,39 +56,25 @@ public class FileStorageServiceImpl implements FileStorageService {
 
     @Override
     public String storeFile(MultipartFile file) {
-        // ENHANCED: Comprehensive file validation
         validateFile(file);
-        
         String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
-        
         try {
-            // Check if the file's name contains invalid characters
             if (originalFileName.contains("..")) {
                 throw new BadRequestException("Filename contains invalid path sequence " + originalFileName);
             }
-
-            // ENHANCED: Validate file extension
             String fileExtension = getFileExtension(originalFileName).toLowerCase();
             if (!ALLOWED_EXTENSIONS.contains(fileExtension)) {
                 throw new BadRequestException("File type not allowed. Allowed types: " + ALLOWED_EXTENSIONS);
             }
-
-            // ENHANCED: Validate MIME type
             String contentType = file.getContentType();
             if (contentType == null || !ALLOWED_MIME_TYPES.contains(contentType.toLowerCase())) {
                 throw new BadRequestException("Invalid file type. Only image files are allowed.");
             }
-
-            // Generate unique filename with timestamp for better uniqueness
             String fileName = System.currentTimeMillis() + "_" + UUID.randomUUID().toString() + "." + fileExtension;
-
-            // Copy file to the target location
             Path targetLocation = this.fileStorageLocation.resolve(fileName);
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-
             log.debug("File stored successfully: {}", fileName);
             return fileName;
-            
         } catch (IOException ex) {
             log.error("Could not store file {}: {}", originalFileName, ex.getMessage());
             throw new BadRequestException("Could not store file " + originalFileName + ". Please try again!");
@@ -98,15 +84,12 @@ public class FileStorageServiceImpl implements FileStorageService {
     @Override
     public Resource loadFileAsResource(String fileName) {
         try {
-            // ENHANCED: Sanitize filename
             String sanitizedFileName = StringUtils.cleanPath(fileName);
             if (sanitizedFileName.contains("..")) {
                 throw new BadRequestException("Invalid file path: " + fileName);
             }
-            
             Path filePath = this.fileStorageLocation.resolve(sanitizedFileName).normalize();
             Resource resource = new UrlResource(filePath.toUri());
-            
             if (resource.exists() && resource.isReadable()) {
                 return resource;
             } else {
@@ -124,18 +107,14 @@ public class FileStorageServiceImpl implements FileStorageService {
             log.warn("Attempted to delete file with null or empty filename");
             return;
         }
-        
         try {
-            // ENHANCED: Sanitize filename
             String sanitizedFileName = StringUtils.cleanPath(fileName);
             if (sanitizedFileName.contains("..")) {
                 log.error("Invalid file path for deletion: {}", fileName);
                 return;
             }
-            
             Path filePath = this.fileStorageLocation.resolve(sanitizedFileName).normalize();
             boolean deleted = Files.deleteIfExists(filePath);
-            
             if (deleted) {
                 log.debug("File deleted successfully: {}", fileName);
             } else {
@@ -147,24 +126,19 @@ public class FileStorageServiceImpl implements FileStorageService {
         }
     }
 
-    // ENHANCED: Comprehensive file validation
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("File is required");
         }
-
         if (file.getSize() > maxFileSize) {
             throw new BadRequestException(
                 String.format("File size exceeds maximum allowed size of %d MB", maxFileSize / 1024 / 1024)
             );
         }
-
         String originalFileName = file.getOriginalFilename();
         if (originalFileName == null || originalFileName.trim().isEmpty()) {
             throw new BadRequestException("File name is required");
         }
-
-        // Check for potentially malicious file names
         if (originalFileName.matches(".*[<>:\"/\\\\|?*].*")) {
             throw new BadRequestException("File name contains invalid characters");
         }
@@ -175,36 +149,5 @@ public class FileStorageServiceImpl implements FileStorageService {
             return "";
         }
         return fileName.substring(fileName.lastIndexOf(".") + 1);
-    }
-
-    // ENHANCED: Utility method to get storage statistics
-    public StorageStats getStorageStats() {
-        try {
-            Path storage = this.fileStorageLocation;
-            long totalSpace = Files.getFileStore(storage).getTotalSpace();
-            long usableSpace = Files.getFileStore(storage).getUsableSpace();
-            long usedSpace = totalSpace - usableSpace;
-            
-            long fileCount = Files.list(storage).count();
-            
-            return new StorageStats(totalSpace, usedSpace, usableSpace, fileCount);
-        } catch (IOException e) {
-            log.error("Error getting storage stats", e);
-            return new StorageStats(0, 0, 0, 0);
-        }
-    }
-
-    public static class StorageStats {
-        public final long totalSpace;
-        public final long usedSpace;
-        public final long usableSpace;
-        public final long fileCount;
-
-        public StorageStats(long totalSpace, long usedSpace, long usableSpace, long fileCount) {
-            this.totalSpace = totalSpace;
-            this.usedSpace = usedSpace;
-            this.usableSpace = usableSpace;
-            this.fileCount = fileCount;
-        }
     }
 }

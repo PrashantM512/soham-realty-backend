@@ -100,7 +100,7 @@ public class PropertyController {
     @PostMapping("/{id}/images")
     public ResponseEntity<ApiResponse<List<String>>> uploadPropertyImages(
             @PathVariable Long id,
-            @RequestParam("images") MultipartFile[] files) {
+            @RequestParam("files") MultipartFile[] files) {
         
         if (files.length == 0) {
             return ResponseEntity.badRequest()

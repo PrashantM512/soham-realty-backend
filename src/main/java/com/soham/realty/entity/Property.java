@@ -72,6 +72,18 @@ public class Property {
     @OrderBy("imageOrder ASC")
     private List<PropertyImage> images = new ArrayList<>();
     
+    @Column(name = "image_url")
+    private String imageUrl;
+
+    // Other fields, getters, setters
+    public String getImageUrl() {
+        return imageUrl;
+    }
+
+    public void setImageUrl(String imageUrl) {
+        this.imageUrl = imageUrl;
+    }
+    
     @Column(name = "created_at")
     private LocalDateTime createdAt;
     
